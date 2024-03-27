@@ -5,6 +5,8 @@
 #include <string.h>
 #include "ts_hashmap.h"
 
+pthread_mutex_t mutex;
+
 /**
  * Creates a new thread-safe hashmap. 
  *
@@ -13,7 +15,18 @@
  */
 ts_hashmap_t *initmap(int capacity) {
   // TODO
-  return NULL;
+  ts_hashmap_t *hashmap = malloc(sizeof(ts_hashmap_t));
+  hashmap->table = malloc(capacity * sizeof(ts_entry_t *));
+  //initialize each pointer in the table to NULL
+  for (int i = 0; i < capacity; i++) {
+    hashmap->table[i] = NULL;
+  }
+  hashmap->capacity = capacity;
+  hashmap->size = 0;
+  hashmap->numOps = 0;
+  //initialize lock
+  pthread_mutex_init(&mutex, NULL);
+  return hashmap;
 }
 
 /**
@@ -24,6 +37,20 @@ ts_hashmap_t *initmap(int capacity) {
  */
 int get(ts_hashmap_t *map, int key) {
   // TODO
+  pthread_mutex_lock(&mutex);
+  int index = (unsigned int)key % map->capacity;
+  ts_entry_t *entry = map->table[index];
+  //loop through linked list at table[index]
+  while (entry != NULL) {
+    if (entry->key == key){
+      map->numOps++;
+      pthread_mutex_unlock(&mutex);
+      return entry->value;
+    }
+    entry = entry->next;
+  }
+  map->numOps++;
+  pthread_mutex_unlock(&mutex);
   return INT_MAX;
 }
 
@@ -36,6 +63,40 @@ int get(ts_hashmap_t *map, int key) {
  */
 int put(ts_hashmap_t *map, int key, int value) {
   // TODO
+  pthread_mutex_lock(&mutex);
+  int index = (unsigned int)key % map->capacity;
+  ts_entry_t *entry = map->table[index];
+  ts_entry_t *prev = NULL;
+  //loop through linkedlist at table[index]
+  while (entry != NULL) {
+    if (entry->key == key) {
+      //key already exists, replace the value and return the old value
+      int old_value = entry->value;
+      entry->value = value;
+      map->numOps++;
+      pthread_mutex_unlock(&mutex);
+      return old_value;
+    }
+    prev = entry;
+    entry = entry->next;
+  }
+  //key doesn't exist, create new entry and put into linked list
+  ts_entry_t *new_entry = malloc(sizeof(ts_entry_t));
+  new_entry->key = key;
+  new_entry->value = value;
+  new_entry->next = NULL;
+  
+  if (prev != NULL) {
+    prev->next = new_entry;
+  } 
+  else {
+    map->table[index] = new_entry;
+  }
+  
+  // Increment the size of the hashmap
+  map->size++;
+  map->numOps++;
+  pthread_mutex_unlock(&mutex);
   return INT_MAX;
 }
 
@@ -47,9 +108,36 @@ int put(ts_hashmap_t *map, int key, int value) {
  */
 int del(ts_hashmap_t *map, int key) {
   // TODO
+   pthread_mutex_lock(&mutex);
+  int index = (unsigned int)key % map->capacity;
+  ts_entry_t *entry = map->table[index];
+  ts_entry_t *prev = NULL;
+  //loop through linked list at table[index]
+  while (entry != NULL) {
+    if (entry->key == key) {
+      // Found the key, remove the entry and return the associated value
+      int value = entry->value;
+      if (prev != NULL) {
+        prev->next = entry->next;
+      } 
+      else {
+        map->table[index] = entry->next;
+      }
+      free(entry);
+      
+      // Decrement the size of the hashmap
+      map->size--;
+      map->numOps++;
+      pthread_mutex_unlock(&mutex);
+      return value;
+    }
+    prev = entry;
+    entry = entry->next;
+  }
+  map->numOps++;
+  pthread_mutex_unlock(&mutex);
   return INT_MAX;
 }
-
 
 /**
  * Prints the contents of the map (given)
@@ -76,4 +164,18 @@ void freeMap(ts_hashmap_t *map) {
   // TODO: iterate through each list, free up all nodes
   // TODO: free the hash table
   // TODO: destroy locks
+  //free hashmap
+	// Free each entry in the table
+    for (int i = 0; i < map->capacity; i++) {
+        ts_entry_t* entry = map->table[i];
+        while (entry != NULL) {
+            ts_entry_t* next = entry->next;
+            free(entry);
+            entry = next;
+        }
+    }
+    // Free the table itself
+    free(map->table);
+    // Free the hashmap struct
+    free(map);
 }
